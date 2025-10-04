@@ -1,11 +1,12 @@
+// Fix: Add a triple-slash directive to include Vite client types, resolving the TypeScript error for `import.meta.env`.
+/// <reference types="vite/client" />
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { ChatMessage, Insights, Pattern, SymbolicMap } from '../types';
 
-if (!process.env.VITE_API_KEY) {
-  throw new Error("VITE_API_KEY environment variable is not set");
-}
-
-const ai = new GoogleGenAI({ apiKey: process.env.VITE_API_KEY });
+// Correct Fix: Use import.meta.env.VITE_API_KEY to access the environment variable in the browser.
+// The variable MUST be prefixed with VITE_ in your Vercel settings.
+const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_API_KEY });
 
 const chatSystemInstruction = `You are a wise and gentle guide helping a user on a journey of self-discovery. Your goal is to ask a series of deep, open-ended questions to understand their inner world. Start with lighter, more imaginative questions and gradually move to more personal ones if their answers invite it. IMPORTANT: Do not get stuck on one topic. After a user answers, ask a question that explores a *different* facet of their life, personality, or values. Your aim is to build a broad, holistic picture. Ask only one question at a time. Keep your questions concise, empathetic, and never number them.`;
 
