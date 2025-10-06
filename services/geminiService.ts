@@ -34,7 +34,8 @@ export async function startConversation(): Promise<string> {
     return response.text;
   } catch (error) {
     console.error("Error starting conversation:", error);
-    return "I'm having a little trouble starting. Please try refreshing the page.";
+    // Re-throw the error so the calling component can handle it
+    throw new Error("I'm having a little trouble starting. Please try refreshing the page.");
   }
 }
 
@@ -51,7 +52,8 @@ export async function getNextQuestion(history: ChatMessage[]): Promise<string> {
     return response.text;
   } catch (error) {
     console.error("Error getting next question:", error);
-    return "I seem to be lost for words. Could you try sending your message again?";
+    // Re-throw the error so the calling component can handle it
+    throw new Error("I seem to be lost for words. Could you try sending your message again?");
   }
 }
 
@@ -59,72 +61,78 @@ export async function generateAllInsights(history: ChatMessage[]): Promise<Omit<
   const conversationSummary = formatHistoryForPrompt(history);
 
   // Step 1: Generate textual insights and a single image prompt.
-  const insightsAndPromptsResponse = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
-    contents: `Based on the user's answers, please generate the required insights. \n\nAnswers:\n${conversationSummary}`,
-    config: {
-      systemInstruction: "You are a profound synthesizer of human experience. Analyze the user's answers to create a compassionate and insightful reflection. Based on the provided answers, generate a JSON object with the specified structure. Analyze the conversation for significant breakthroughs, shifts in perspective, or deep emotional revelations. If one is found, mark `isMilestone` as true and provide a brief `milestoneReason`.",
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          reflection: { type: Type.STRING, description: "A long-form, insightful written reflection (250-350 words) for 'Your Inner Landscape'. It should synthesize patterns and core longings in a kind, empathetic tone." },
-          poem: { type: Type.STRING, description: "A short, evocative poem (6-10 lines) for 'A Whisper From Within', distilling the essence of the user's inner world." },
-          symbolicMapTitle: { type: Type.STRING, description: "A short, evocative title for the 'Symbolic Map', like 'The Garden of Becoming'." },
-          symbolicMapDescription: { type: Type.STRING, description: "A 2-3 sentence description for the 'Symbolic Map'." },
-          symbolicMapImagePrompt: { type: Type.STRING, description: "One detailed prompt for an AI image generator to create the main symbolic visual. Style: 'A serene and symbolic digital painting. Minimalist composition with a textured, painterly feel. Muted, sophisticated color palette. Focus on atmosphere and emotion over literal depiction.'" },
-          patterns: {
-            type: Type.ARRAY,
-            description: "An array of 3 key patterns identified from the conversation.",
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                iconName: { type: Type.STRING, enum: ['Shield', 'Seedling', 'Path', 'Heart', 'Anchor', 'Lightbulb'], description: "The most fitting icon name for this pattern." },
-                title: { type: Type.STRING, description: "A short, impactful title for the pattern." },
-                description: { type: Type.STRING, description: "A 2-3 sentence description of the pattern." }
-              },
-              required: ["iconName", "title", "description"]
-            }
+  try {
+    const insightsAndPromptsResponse = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: `Based on the user's answers, please generate the required insights. \n\nAnswers:\n${conversationSummary}`,
+      config: {
+        systemInstruction: "You are a profound synthesizer of human experience. Analyze the user's answers to create a compassionate and insightful reflection. Based on the provided answers, generate a JSON object with the specified structure. Analyze the conversation for significant breakthroughs, shifts in perspective, or deep emotional revelations. If one is found, mark `isMilestone` as true and provide a brief `milestoneReason`.",
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            reflection: { type: Type.STRING, description: "A long-form, insightful written reflection (250-350 words) for 'Your Inner Landscape'. It should synthesize patterns and core longings in a kind, empathetic tone." },
+            poem: { type: Type.STRING, description: "A short, evocative poem (6-10 lines) for 'A Whisper From Within', distilling the essence of the user's inner world." },
+            symbolicMapTitle: { type: Type.STRING, description: "A short, evocative title for the 'Symbolic Map', like 'The Garden of Becoming'." },
+            symbolicMapDescription: { type: Type.STRING, description: "A 2-3 sentence description for the 'Symbolic Map'." },
+            symbolicMapImagePrompt: { type: Type.STRING, description: "One detailed prompt for an AI image generator to create the main symbolic visual. Style: 'A serene and symbolic digital painting. Minimalist composition with a textured, painterly feel. Muted, sophisticated color palette. Focus on atmosphere and emotion over literal depiction.'" },
+            patterns: {
+              type: Type.ARRAY,
+              description: "An array of 3 key patterns identified from the conversation.",
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  iconName: { type: Type.STRING, enum: ['Shield', 'Seedling', 'Path', 'Heart', 'Anchor', 'Lightbulb'], description: "The most fitting icon name for this pattern." },
+                  title: { type: Type.STRING, description: "A short, impactful title for the pattern." },
+                  description: { type: Type.STRING, description: "A 2-3 sentence description of the pattern." }
+                },
+                required: ["iconName", "title", "description"]
+              }
+            },
+            isMilestone: { type: Type.BOOLEAN, description: "Set to true if this session represents a significant breakthrough or turning point." },
+            milestoneReason: { type: Type.STRING, description: "If isMilestone is true, a brief (1-2 sentence) explanation of why this is a milestone. Otherwise, null." }
           },
-          isMilestone: { type: Type.BOOLEAN, description: "Set to true if this session represents a significant breakthrough or turning point." },
-          milestoneReason: { type: Type.STRING, description: "If isMilestone is true, a brief (1-2 sentence) explanation of why this is a milestone. Otherwise, null." }
+          required: ["reflection", "poem", "symbolicMapTitle", "symbolicMapDescription", "symbolicMapImagePrompt", "patterns", "isMilestone"],
         },
-        required: ["reflection", "poem", "symbolicMapTitle", "symbolicMapDescription", "symbolicMapImagePrompt", "patterns", "isMilestone"],
       },
-    },
-  });
+    });
 
-  const insightsData = JSON.parse(insightsAndPromptsResponse.text);
+    const insightsData = JSON.parse(insightsAndPromptsResponse.text);
 
-  // Step 2: Generate the single symbolic image.
-  const imageResponse = await ai.models.generateImages({
-    model: 'imagen-4.0-generate-001',
-    prompt: insightsData.symbolicMapImagePrompt,
-    config: {
-      numberOfImages: 1,
-      aspectRatio: '1:1',
-      outputMimeType: 'image/jpeg'
-    }
-  });
-  
-  const base64ImageBytes = imageResponse.generatedImages[0].image.imageBytes;
-  const imageUrl = `data:image/jpeg;base64,${base64ImageBytes}`;
+    // Step 2: Generate the single symbolic image.
+    const imageResponse = await ai.models.generateImages({
+      model: 'imagen-4.0-generate-001',
+      prompt: insightsData.symbolicMapImagePrompt,
+      config: {
+        numberOfImages: 1,
+        aspectRatio: '1:1',
+        outputMimeType: 'image/jpeg'
+      }
+    });
+    
+    const base64ImageBytes = imageResponse.generatedImages[0].image.imageBytes;
+    const imageUrl = `data:image/jpeg;base64,${base64ImageBytes}`;
 
-  const symbolicMap: SymbolicMap = {
-    title: insightsData.symbolicMapTitle,
-    description: insightsData.symbolicMapDescription,
-    imageUrl: imageUrl,
-  };
+    const symbolicMap: SymbolicMap = {
+      title: insightsData.symbolicMapTitle,
+      description: insightsData.symbolicMapDescription,
+      imageUrl: imageUrl,
+    };
 
-  const patterns: Pattern[] = insightsData.patterns;
+    const patterns: Pattern[] = insightsData.patterns;
 
-  return { 
-      reflection: insightsData.reflection,
-      poem: insightsData.poem,
-      symbolicMap,
-      patterns,
-      isMilestone: insightsData.isMilestone,
-      milestoneReason: insightsData.milestoneReason || null,
-      history: history,
-  };
+    return { 
+        reflection: insightsData.reflection,
+        poem: insightsData.poem,
+        symbolicMap,
+        patterns,
+        isMilestone: insightsData.isMilestone,
+        milestoneReason: insightsData.milestoneReason || null,
+        history: history,
+    };
+  } catch (error) {
+    console.error("Error generating insights:", error);
+    // Let the main App component handle this, as it's a critical failure.
+    throw new Error("Failed to generate insights from the conversation.");
+  }
 }
