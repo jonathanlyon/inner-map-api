@@ -13,41 +13,71 @@ import { generateAllInsights } from './services/geminiService';
 import { getSessions, saveSession } from './services/storageService';
 import { exportToPdf } from './utils/pdfExporter';
 
+type AppAction =
+  | { type: 'START_JOURNEY' }
+  | { type: 'VIEW_DASHBOARD' }
+  | { type: 'SELECT_JOURNAL_ENTRY'; payload: Insights }
+  | { type: 'START_INSIGHT_GENERATION' }
+  | { type: 'INSIGHT_GENERATION_SUCCESS'; payload: Insights }
+  | { type: 'INSIGHT_GENERATION_FAILURE'; payload: string }
+  | { type: 'SET_DASHBOARD_TAB'; payload: 'journal' | 'evolution' }
+  | { type: 'INITIALIZE'; payload: Insights[] };
+
+interface AppStateModel {
+  appState: AppState;
+  dashboardTab: 'journal' | 'evolution';
+  currentInsights: Insights | null;
+  error: string | null;
+  journalEntries: Insights[];
+}
+
+const initialState: AppStateModel = {
+  appState: 'welcome',
+  dashboardTab: 'journal',
+  currentInsights: null,
+  error: null,
+  journalEntries: [],
+};
+
+const appReducer = (state: AppStateModel, action: AppAction): AppStateModel => {
+  switch (action.type) {
+    case 'INITIALIZE':
+      return { ...state, journalEntries: action.payload, appState: action.payload.length > 0 ? 'dashboard' : 'welcome' };
+    case 'START_JOURNEY':
+      return { ...state, appState: 'question_flow', currentInsights: null, error: null };
+    case 'VIEW_DASHBOARD':
+      return { ...state, appState: 'dashboard', currentInsights: null };
+    case 'SELECT_JOURNAL_ENTRY':
+      return { ...state, appState: 'session_detail', currentInsights: action.payload };
+    case 'START_INSIGHT_GENERATION':
+      return { ...state, appState: 'generating', error: null };
+    case 'INSIGHT_GENERATION_SUCCESS':
+      const updatedEntries = [action.payload, ...state.journalEntries];
+      return { ...state, appState: 'results', currentInsights: action.payload, journalEntries: updatedEntries };
+    case 'INSIGHT_GENERATION_FAILURE':
+      return { ...state, appState: 'welcome', error: action.payload };
+    case 'SET_DASHBOARD_TAB':
+      return { ...state, dashboardTab: action.payload };
+    default:
+      return state;
+  }
+};
 
 const App: React.FC = () => {
-  const [appState, setAppState] = useState<AppState>('welcome');
-  const [dashboardTab, setDashboardTab] = useState<'journal' | 'evolution'>('journal');
-  const [currentInsights, setCurrentInsights] = useState<Insights | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [journalEntries, setJournalEntries] = useState<Insights[]>([]);
+  const [state, dispatch] = React.useReducer(appReducer, initialState);
+  const { appState, dashboardTab, currentInsights, error, journalEntries } = state;
 
   useEffect(() => {
     const entries = getSessions();
-    setJournalEntries(entries);
-    if (entries.length > 0) {
-      setAppState('dashboard');
-    }
+    dispatch({ type: 'INITIALIZE', payload: entries });
   }, []);
 
-  const handleStart = () => {
-    setAppState('question_flow');
-    setCurrentInsights(null);
-    setError(null);
-  };
-  
-  const handleViewDashboard = () => {
-      setAppState('dashboard');
-      setCurrentInsights(null);
-  };
-
-  const handleSelectJournalEntry = (entry: Insights) => {
-    setCurrentInsights(entry);
-    setAppState('session_detail');
-  };
+  const handleStart = () => dispatch({ type: 'START_JOURNEY' });
+  const handleViewDashboard = () => dispatch({ type: 'VIEW_DASHBOARD' });
+  const handleSelectJournalEntry = (entry: Insights) => dispatch({ type: 'SELECT_JOURNAL_ENTRY', payload: entry });
 
   const handleConversationComplete = async (history: ChatMessage[]) => {
-    setAppState('generating');
-    setError(null);
+    dispatch({ type: 'START_INSIGHT_GENERATION' });
     try {
       const result = await generateAllInsights(history);
       const newEntry: Insights = { ...result, timestamp: Date.now() };
@@ -58,14 +88,12 @@ const App: React.FC = () => {
         newEntry.milestoneReason = "The beginning of your journey. This marks your first step into self-reflection.";
       }
 
-      setCurrentInsights(newEntry);
       saveSession(newEntry);
-      setJournalEntries(getSessions());
-      setAppState('results');
+      dispatch({ type: 'INSIGHT_GENERATION_SUCCESS', payload: newEntry });
     } catch (err) {
       console.error("Failed to generate insights:", err);
-      setError("Sorry, an error occurred while creating your reflection. Please try starting a new journey.");
-      setAppState('welcome');
+      const errorMessage = "Sorry, an error occurred while creating your reflection. Please try starting a new journey.";
+      dispatch({ type: 'INSIGHT_GENERATION_FAILURE', payload: errorMessage });
     }
   };
   
@@ -88,7 +116,7 @@ const App: React.FC = () => {
                 <h1 className="font-serif text-4xl font-bold text-[#2A2A2A]">Your Inner Evolution</h1>
                 <p className="mt-2 text-lg text-slate-600">Witness how your inner landscape has shifted and transformed across your journey of self-discovery.</p>
             </header>
-            <Navigation currentTab={dashboardTab} setTab={setDashboardTab} />
+            <Navigation currentTab={dashboardTab} setTab={(tab) => dispatch({ type: 'SET_DASHBOARD_TAB', payload: tab })} />
             <div className="mt-8">
               {dashboardTab === 'journal' ? (
                 <JournalView entries={journalEntries} onSelect={handleSelectJournalEntry} onStartNew={handleStart} />
